@@ -249,7 +249,7 @@ pub fn create_current_version(conn: &mut rusqlite::Connection) -> Result<DB> {
     // TODO: return to transact_internal to self-manage the encompassing SQLite transaction.
     let bootstrap_schema_for_mutation = Schema::default(); // The bootstrap transaction will populate this schema.
 
-    let (_report, next_partition_map, next_schema) = transact(&tx, db.partition_map, &bootstrap_schema_for_mutation, &db.schema, bootstrap::bootstrap_entities())?;
+    let (_report, next_partition_map, next_schema, _changes) = transact(&tx, db.partition_map, &bootstrap_schema_for_mutation, &db.schema, bootstrap::bootstrap_entities())?;
     // TODO: validate metadata mutations that aren't schema related, like additional partitions.
     if let Some(next_schema) = next_schema {
         if next_schema != db.schema {

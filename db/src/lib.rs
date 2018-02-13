@@ -73,8 +73,13 @@ pub use db::{
 };
 
 pub use tx::{
+    OBSERVER_SERVICE,
     transact,
     transact_terms,
+    AttributeSet,
+    BatchedTransaction,
+    TxObservationService,
+    TxObserver,
 };
 
 pub use types::{

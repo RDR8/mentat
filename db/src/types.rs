@@ -11,7 +11,9 @@
 #![allow(dead_code)]
 
 use std::collections::HashMap;
-use std::collections::BTreeMap;
+use std::collections::{
+    BTreeMap,
+};
 
 extern crate mentat_core;
 

@@ -47,6 +47,9 @@ use mentat_db::db;
 use mentat_db::{
     transact,
     transact_terms,
+    OBSERVER_SERVICE,
+    AttributeSet,
+    BatchedTransaction,
     PartitionMap,
     TxReport,
 };
@@ -186,8 +189,8 @@ pub struct InProgress<'a, 'c> {
     partition_map: PartitionMap,
     schema: Schema,
     cache: RwLockWriteGuard<'a, SQLiteAttributeCache>,
-
     use_caching: bool,
+    transactions: Option<BatchedTransaction>,
 }
 
 /// Represents an in-progress set of reads to the store. Just like `InProgress`,
@@ -347,13 +350,25 @@ impl<'a, 'c> InProgress<'a, 'c> {
         self.use_caching = yesno;
     }
 
+    fn record_transact(&mut self, report: &TxReport, changes: AttributeSet) {
+        match self.transactions {
+            Some(ref mut batch) => batch.add_transact(report.tx_id.clone(), changes),
+            None => {
+                let mut batch = BatchedTransaction::default();
+                batch.add_transact(report.tx_id.clone(), changes);
+                self.transactions = Some(batch);
+            },
+        }
+    }
+
     pub fn transact_terms<I>(&mut self, terms: I, tempid_set: InternSet<TempId>) -> Result<TxReport> where I: IntoIterator<Item=TermWithTempIds> {
-        let (report, next_partition_map, next_schema) = transact_terms(&self.transaction,
+        let (report, next_partition_map, next_schema, changes) = transact_terms(&self.transaction,
                                                                        self.partition_map.clone(),
                                                                        &self.schema,
                                                                        &self.schema,
                                                                        terms,
                                                                        tempid_set)?;
+        self.record_transact(&report, changes);
         self.partition_map = next_partition_map;
         if let Some(schema) = next_schema {
             self.schema = schema;
@@ -370,7 +385,10 @@ impl<'a, 'c> InProgress<'a, 'c> {
         //    `Metadata` on return. If we used `Cell` or other mechanisms, we'd be using
         //    `Default::default` in those situations to extract the partition map, and so there
         //    would still be some cost.
-        let (report, next_partition_map, next_schema) = transact(&self.transaction, self.partition_map.clone(), &self.schema, &self.schema, entities)?;
+        let (report, next_partition_map, next_schema, changes) = transact(&self.transaction, self.partition_map.clone(), &self.schema, &self.schema, entities)?;
+
+        self.record_transact(&report, changes);
+
         self.partition_map = next_partition_map;
         if let Some(schema) = next_schema {
             self.schema = schema;
@@ -401,7 +419,10 @@ impl<'a, 'c> InProgress<'a, 'c> {
         }
 
         // Commit the SQLite transaction while we hold the mutex.
+        // OK, we can't use transaction as a key as we don't know something is committed until after it succeeds,
+        // in which case we no longer have the transaction
         self.transaction.commit()?;
+        OBSERVER_SERVICE.lock().unwrap().transaction_did_commit(&self.transactions);
 
         metadata.generation += 1;
         metadata.partition_map = self.partition_map;
@@ -648,6 +669,7 @@ impl Conn {
             schema: (*current_schema).clone(),
             cache: self.attribute_cache.write().unwrap(),
             use_caching: true,
+            transactions: None,
         })
     }
 
