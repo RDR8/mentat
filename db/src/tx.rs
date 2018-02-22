@@ -54,9 +54,6 @@ use std::collections::{
 use std::rc::{
     Rc,
 };
-use std::sync::{
-    Mutex,
-};
 
 use db;
 use db::{
@@ -785,10 +782,6 @@ pub fn transact_terms<'conn, 'a, 'id, I>(conn: &'conn rusqlite::Connection,
     conclude_tx(tx, report, changes)
 }
 
-pub trait TxObserving: Send {
-    fn notify(&self, key: String, transactions: BatchedTransaction);
-}
-
 #[derive(Default, Debug, Clone)]
 pub struct BatchedTransaction {
     transactions: BTreeMap<Entid, AttributeSet>
@@ -805,13 +798,20 @@ impl BatchedTransaction {
 }
 
 pub struct TxObserver {
-    pub inner: Box<TxObserving>,
+    notify_fn: Option<Box<FnMut(String, BatchedTransaction)>>
 }
 
-impl TxObserving for TxObserver {
-    fn notify(&self, key: String, transactions: BatchedTransaction) {
-        eprintln!("observer notified about transactions {:?}", transactions);
-        self.inner.notify(key, transactions);
+impl TxObserver {
+    pub fn new<F>(notify_fn: F) -> TxObserver where F: FnMut(String, BatchedTransaction) + 'static {
+        TxObserver { notify_fn: Some(Box::new(notify_fn)) }
+    }
+
+    fn notify(&mut self, key: String, transactions: BatchedTransaction) {
+        if let Some(ref mut notify_fn) = self.notify_fn {
+            (notify_fn)(key, transactions);
+        } else {
+            eprintln!("no notify function specified for TxObserver");
+        }
     }
 }
 
@@ -822,15 +822,19 @@ pub struct TxObservationService {
 }
 
 impl<'o> TxObservationService {
+    // For testing purposes
+    pub fn is_registered(&self, key: &String) -> bool {
+        self.observers.contains_key(key)
+    }
 
     pub fn register(&mut self, observer: TxObserver, key: String, attributes: AttributeSet) {
         self.observers.insert(key.clone(), observer);
         self.attributes.insert(key, attributes);
     }
 
-    pub fn deregister(&mut self, key: String) {
-        self.observers.remove(&key);
-        self.attributes.remove(&key);
+    pub fn deregister(&mut self, key: &String) {
+        self.observers.remove(key);
+        self.attributes.remove(key);
     }
 
     fn observers_for_attributes(&self, changes: &AttributeSet) -> BTreeSet<(String, AttributeSet)> {
@@ -846,7 +850,7 @@ impl<'o> TxObservationService {
         }).collect()
     }
 
-    pub fn transaction_did_commit(&self, batched_transactions: &Option<BatchedTransaction>) {
+    pub fn transaction_did_commit(&mut self, batched_transactions: &Option<BatchedTransaction>) {
         // notify all observers about their relevant transactions
         let mut transactions = BTreeMap::new();
         if let &Some(ref batch) = batched_transactions{
@@ -859,14 +863,9 @@ impl<'o> TxObservationService {
         }
 
         for (key, batch) in transactions.into_iter() {
-            if let Some(observer) = self.observers.get(&key) {
+            if let Some(observer) = self.observers.get_mut(&key) {
                 observer.notify(key.clone(), batch);
             }
         }
     }
-}
-
-
-lazy_static! {
-    pub static ref OBSERVER_SERVICE: Mutex<TxObservationService> = Mutex::new(TxObservationService::default());
 }

@@ -73,7 +73,6 @@ pub use db::{
 };
 
 pub use tx::{
-    OBSERVER_SERVICE,
     transact,
     transact_terms,
     AttributeSet,

@@ -1241,7 +1241,7 @@ mod tests {
                 details
             };
 
-            let (report, next_partition_map, next_schema) = details;
+            let (report, next_partition_map, next_schema, _changes) = details;
             self.partition_map = next_partition_map;
             if let Some(next_schema) = next_schema {
                 self.schema = next_schema;

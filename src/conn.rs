@@ -47,10 +47,10 @@ use mentat_db::db;
 use mentat_db::{
     transact,
     transact_terms,
-    OBSERVER_SERVICE,
     AttributeSet,
     BatchedTransaction,
     PartitionMap,
+    TxObservationService,
     TxReport,
 };
 
@@ -122,8 +122,9 @@ pub struct Conn {
 
     // TODO: maintain cache of query plans that could be shared across threads and invalidated when
     // the schema changes. #315.
-
     attribute_cache: RwLock<SQLiteAttributeCache>,
+
+    tx_observer_service: Mutex<TxObservationService>,
 }
 
 /// A convenience wrapper around a single SQLite connection and a Conn. This is suitable
@@ -191,6 +192,7 @@ pub struct InProgress<'a, 'c> {
     cache: RwLockWriteGuard<'a, SQLiteAttributeCache>,
     use_caching: bool,
     transactions: Option<BatchedTransaction>,
+    observer_service: &'a Mutex<TxObservationService>,
 }
 
 /// Represents an in-progress set of reads to the store. Just like `InProgress`,
@@ -422,7 +424,8 @@ impl<'a, 'c> InProgress<'a, 'c> {
         // OK, we can't use transaction as a key as we don't know something is committed until after it succeeds,
         // in which case we no longer have the transaction
         self.transaction.commit()?;
-        OBSERVER_SERVICE.lock().unwrap().transaction_did_commit(&self.transactions);
+        let mut observer_service = self.observer_service.lock().unwrap();
+        observer_service.transaction_did_commit(&self.transactions);
 
         metadata.generation += 1;
         metadata.partition_map = self.partition_map;
@@ -518,7 +521,8 @@ impl Conn {
     fn new(partition_map: PartitionMap, schema: Schema) -> Conn {
         Conn {
             metadata: Mutex::new(Metadata::new(0, partition_map, Arc::new(schema))),
-            attribute_cache: Default::default()
+            attribute_cache: Default::default(),
+            tx_observer_service: Mutex::new(TxObservationService::default()),
         }
     }
 
@@ -670,6 +674,7 @@ impl Conn {
             cache: self.attribute_cache.write().unwrap(),
             use_caching: true,
             transactions: None,
+            observer_service: &self.tx_observer_service,
         })
     }
 
