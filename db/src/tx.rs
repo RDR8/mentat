@@ -837,7 +837,7 @@ impl<'o> TxObservationService {
         self.attributes.remove(key);
     }
 
-    fn observers_for_attributes(&self, changes: &AttributeSet) -> BTreeSet<(String, AttributeSet)> {
+    pub fn matching_observers(&self, changes: &AttributeSet) -> BTreeSet<(String, AttributeSet)> {
         // filter observers by ones that care about attributes
         // add the changes and transaction to the batched transactions of the observers that care about it.
         self.attributes.iter().filter_map(|(key, attrs)| {
@@ -855,7 +855,7 @@ impl<'o> TxObservationService {
         let mut transactions = BTreeMap::new();
         if let &Some(ref batch) = batched_transactions{
             for (txid, changes) in batch.get().iter() {
-                for &(ref key, ref attrs) in self.observers_for_attributes(changes).iter() {
+                for &(ref key, ref attrs) in self.matching_observers(changes).iter() {
                     let obs_batch = transactions.entry(key.clone()).or_insert(BatchedTransaction::default());
                     obs_batch.add_transact(txid.clone(), attrs.clone());
                 }

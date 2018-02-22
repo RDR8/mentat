@@ -26,6 +26,14 @@ use mentat_db::{
     TxObservationService,
 };
 
+fn get_registered_observer_attributes() -> BTreeSet<Entid> {
+    let mut registered_attrs = BTreeSet::new();
+    registered_attrs.insert(100);
+    registered_attrs.insert(200);
+    registered_attrs.insert(300);
+    registered_attrs
+}
+
 #[test]
 fn test_register_observer() {
     let mut observer_service = TxObservationService::default();
@@ -58,10 +66,7 @@ fn test_deregister_observer() {
 fn test_observer_notified_on_registered_change() {
     let mut observer_service = TxObservationService::default();
     let key = "Test Observing".to_string();
-    let mut registered_attrs = BTreeSet::new();
-    registered_attrs.insert(100);
-    registered_attrs.insert(200);
-    registered_attrs.insert(300);
+    let register_attrs = get_registered_observer_attributes();
 
     let txids = Rc::new(RefCell::new(Vec::new()));
     let changes = Rc::new(RefCell::new(Vec::new()));
@@ -118,10 +123,7 @@ fn test_observer_notified_on_registered_change() {
 fn test_observer_not_notified_on_unregistered_change() {
     let mut observer_service = TxObservationService::default();
     let key = "Test Observing".to_string();
-    let mut registered_attrs = BTreeSet::new();
-    registered_attrs.insert(100);
-    registered_attrs.insert(200);
-    registered_attrs.insert(300);
+    let register_attrs = get_registered_observer_attributes();
 
     let txids = Rc::new(RefCell::new(Vec::new()));
     let changes = Rc::new(RefCell::new(Vec::new()));
