@@ -842,6 +842,10 @@ impl TxObservationService {
         self.observers.remove(key);
     }
 
+    pub fn has_observers(&self) -> bool {
+        !self.observers.is_empty()
+    }
+
     pub fn transaction_did_commit(&mut self, reports: &Vec<TxReport>) {
         // notify all observers about their relevant transactions
         for (key, observer) in self.observers.iter_mut() {

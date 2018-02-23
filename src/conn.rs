@@ -191,7 +191,7 @@ pub struct InProgress<'a, 'c> {
     cache: RwLockWriteGuard<'a, SQLiteAttributeCache>,
     use_caching: bool,
     tx_reports: Vec<TxReport>,
-    observer_service: &'a Mutex<TxObservationService>,
+    observer_service: Option<&'a Mutex<TxObservationService>>,
 }
 
 /// Represents an in-progress set of reads to the store. Just like `InProgress`,
@@ -411,8 +411,9 @@ impl<'a, 'c> InProgress<'a, 'c> {
         // OK, we can't use transaction as a key as we don't know something is committed until after it succeeds,
         // in which case we no longer have the transaction
         self.transaction.commit()?;
-        let mut observer_service = self.observer_service.lock().unwrap();
-        observer_service.transaction_did_commit(&self.tx_reports);
+        if let Some(observer_service) = self.observer_service {
+            observer_service.lock().unwrap().transaction_did_commit(&self.tx_reports);
+        }
 
         metadata.generation += 1;
         metadata.partition_map = self.partition_map;
@@ -666,7 +667,7 @@ impl Conn {
             cache: self.attribute_cache.write().unwrap(),
             use_caching: true,
             tx_reports: Vec::new(),
-            observer_service: &self.tx_observer_service,
+            observer_service: if self.tx_observer_service.lock().unwrap().has_observers() { Some(&self.tx_observer_service) } else { None },
         })
     }
 
