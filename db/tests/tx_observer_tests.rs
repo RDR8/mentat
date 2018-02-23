@@ -183,7 +183,7 @@ fn test_observer_not_notified_on_unregistered_change() {
 }
 
 #[test]
-fn test_only_notifies_observers_registered_at_transact() {
+fn test_only_notifies_observers_registered_at_transact_start() {
     let mut observer_service = TxObservationService::default();
     let key_1 = "Test Observing 1".to_string();
     let registered_attrs = get_registered_observer_attributes();
@@ -257,9 +257,9 @@ fn test_only_notifies_observers_registered_at_transact() {
     assert_eq!(c, &RefCell::new(vec![tx_set_1.clone(), tx_set_2.clone()]));
 
     let val = called_key_2.deref();
-    assert_eq!(val, &RefCell::new(Some(key_2.clone())));
+    assert_eq!(val, &RefCell::new(None));
     let t = txids_2.deref();
-    assert_eq!(t, &RefCell::new(vec![11]));
+    assert_eq!(t, &RefCell::new(vec![]));
     let c = changes_2.deref();
-    assert_eq!(c, &RefCell::new(vec![tx_set_2]));
+    assert_eq!(c, &RefCell::new(vec![]));
 }
