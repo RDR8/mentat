@@ -785,6 +785,7 @@ pub fn transact_terms<'conn, 'a, 'id, I>(conn: &'conn rusqlite::Connection,
 pub struct TxObserver {
     notify_fn: Option<Box<FnMut(String, Vec<TxReport>)>>,
     attributes: AttributeSet,
+    registration_time: Option<DateTime<Utc>>,
 }
 
 impl TxObserver {
@@ -792,16 +793,28 @@ impl TxObserver {
         TxObserver {
             notify_fn: Some(Box::new(notify_fn)),
             attributes,
+            registration_time: None,
         }
     }
 
+    fn set_registered(&mut self) {
+        self.registration_time = Some(now());
+    }
+
     fn notify(&mut self, key: String, reports: &Vec<TxReport>) {
-        let reports: Vec<TxReport> = reports.iter().filter( |report| {
-            self.attributes.intersection(&report.changeset).next().is_some()
-        }).map(|x| x.clone()).collect();
-        if !reports.is_empty() {
+        let matching_reports: Vec<TxReport> = reports.iter().filter_map( |report| {
+            if let Some(registration_time) = self.registration_time {
+                if registration_time.le(&report.tx_instant) {
+                    if self.attributes.intersection(&report.changeset).next().is_some(){
+                        return Some(report.clone());
+                    }
+                }
+            }
+            None
+        }).collect();
+        if !matching_reports.is_empty() {
             if let Some(ref mut notify_fn) = self.notify_fn {
-                (notify_fn)(key, reports);
+                (notify_fn)(key, matching_reports);
             } else {
                 eprintln!("no notify function specified for TxObserver");
             }
@@ -814,13 +827,14 @@ pub struct TxObservationService {
     observers: BTreeMap<String, TxObserver>,
 }
 
-impl<'o> TxObservationService {
+impl TxObservationService {
     // For testing purposes
     pub fn is_registered(&self, key: &String) -> bool {
         self.observers.contains_key(key)
     }
 
-    pub fn register(&mut self, key: String, observer: TxObserver) {
+    pub fn register(&mut self, key: String, mut observer: TxObserver) {
+        observer.set_registered();
         self.observers.insert(key.clone(), observer);
     }
 

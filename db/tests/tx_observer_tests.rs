@@ -180,3 +180,85 @@ fn test_observer_not_notified_on_unregistered_change() {
     let c = changes.deref();
     assert_eq!(c, &RefCell::new(vec![]));
 }
+
+#[test]
+fn test_only_notifies_observers_registered_at_transact() {
+    let mut observer_service = TxObservationService::default();
+    let key_1 = "Test Observing 1".to_string();
+    let registered_attrs = get_registered_observer_attributes();
+
+    let txids_1 = Rc::new(RefCell::new(Vec::new()));
+    let changes_1 = Rc::new(RefCell::new(Vec::new()));
+    let called_key_1: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    let mut_txids_1 = Rc::clone(&txids_1);
+    let mut_changes_1 = Rc::clone(&changes_1);
+    let mut_key_1 = Rc::clone(&called_key_1);
+
+    let tx_observer_1 = TxObserver::new(registered_attrs.clone(), move |obs_key, batch| {
+        let mut k = mut_key_1.borrow_mut();
+        *k = Some(obs_key.clone());
+        let mut t = mut_txids_1.borrow_mut();
+        let mut c = mut_changes_1.borrow_mut();
+        for report in batch.iter() {
+            t.push(report.tx_id.clone());
+            c.push(report.changeset.clone());
+        }
+        t.sort();
+    });
+
+    observer_service.register(key_1.clone(), tx_observer_1);
+    assert!(observer_service.is_registered(&key_1));
+
+    let mut tx_set_1 = BTreeSet::new();
+    tx_set_1.insert(100);
+    tx_set_1.insert(400);
+    tx_set_1.insert(700);
+
+    let mut batch = Vec::new();
+    batch.push(tx_report(10, tx_set_1.clone()));
+
+    // register second observer after one transact has occured
+    let key_2 = "Test Observing 2".to_string();
+    let txids_2 = Rc::new(RefCell::new(Vec::new()));
+    let changes_2 = Rc::new(RefCell::new(Vec::new()));
+    let called_key_2: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+
+    let mut_txids_2 = Rc::clone(&txids_2);
+    let mut_changes_2 = Rc::clone(&changes_2);
+    let mut_key_2 = Rc::clone(&called_key_2);
+
+    let tx_observer_2 = TxObserver::new(registered_attrs, move |obs_key, batch| {
+        let mut k = mut_key_2.borrow_mut();
+        *k = Some(obs_key.clone());
+        let mut t = mut_txids_2.borrow_mut();
+        let mut c = mut_changes_2.borrow_mut();
+        for report in batch.iter() {
+            t.push(report.tx_id.clone());
+            c.push(report.changeset.clone());
+        }
+        t.sort();
+    });
+    observer_service.register(key_2.clone(), tx_observer_2);
+    assert!(observer_service.is_registered(&key_2));
+
+    let mut tx_set_2 = BTreeSet::new();
+    tx_set_2.insert(200);
+    tx_set_2.insert(300);
+    batch.push(tx_report(11, tx_set_2.clone()));
+    observer_service.transaction_did_commit(&batch);
+
+    let val = called_key_1.deref();
+    assert_eq!(val, &RefCell::new(Some(key_1.clone())));
+    let t = txids_1.deref();
+    assert_eq!(t, &RefCell::new(vec![10, 11]));
+    let c = changes_1.deref();
+    assert_eq!(c, &RefCell::new(vec![tx_set_1.clone(), tx_set_2.clone()]));
+
+    let val = called_key_2.deref();
+    assert_eq!(val, &RefCell::new(Some(key_2.clone())));
+    let t = txids_2.deref();
+    assert_eq!(t, &RefCell::new(vec![11]));
+    let c = changes_2.deref();
+    assert_eq!(c, &RefCell::new(vec![tx_set_2]));
+}
