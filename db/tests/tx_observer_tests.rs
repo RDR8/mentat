@@ -8,11 +8,13 @@
 // CONDITIONS OF ANY KIND, either express or implied. See the License for the
 // specific language governing permissions and limitations under the License.
 extern crate mentat_db;
+extern crate mentat_core;
 
 use std::cell::{
     RefCell
 };
 use std::collections::{
+    BTreeMap,
     BTreeSet,
 };
 use std::ops::Deref;
@@ -20,18 +22,32 @@ use std::rc::{
     Rc,
 };
 
+use mentat_core::{
+    now,
+};
+
 use mentat_db::{
-    BatchedTransaction,
     TxObserver,
     TxObservationService,
 };
 
-fn get_registered_observer_attributes() -> BTreeSet<Entid> {
+use mentat_db::types::TxReport;
+
+fn get_registered_observer_attributes() -> BTreeSet<i64> {
     let mut registered_attrs = BTreeSet::new();
     registered_attrs.insert(100);
     registered_attrs.insert(200);
     registered_attrs.insert(300);
     registered_attrs
+}
+
+fn tx_report(tx_id: i64, changes: BTreeSet<i64>) -> TxReport {
+    TxReport {
+        tx_id: tx_id,
+        tx_instant: now(),
+        tempids: BTreeMap::new(),
+        changeset: changes,
+    }
 }
 
 #[test]
@@ -66,7 +82,7 @@ fn test_deregister_observer() {
 fn test_observer_notified_on_registered_change() {
     let mut observer_service = TxObservationService::default();
     let key = "Test Observing".to_string();
-    let register_attrs = get_registered_observer_attributes();
+    let registered_attrs = get_registered_observer_attributes();
 
     let txids = Rc::new(RefCell::new(Vec::new()));
     let changes = Rc::new(RefCell::new(Vec::new()));
@@ -80,9 +96,9 @@ fn test_observer_notified_on_registered_change() {
         *k = Some(obs_key.clone());
         let mut t = mut_txids.borrow_mut();
         let mut c = mut_changes.borrow_mut();
-        for (tx, changes) in batch.get().iter() {
-            t.push(tx.clone());
-            c.push(changes.clone());
+        for report in batch.iter() {
+            t.push(report.tx_id.clone());
+            c.push(report.changeset.clone());
         }
         t.sort();
     });
@@ -99,31 +115,26 @@ fn test_observer_notified_on_registered_change() {
     tx_set_2.insert(300);
     let mut tx_set_3 = BTreeSet::new();
     tx_set_3.insert(600);
-    let mut batch = BatchedTransaction::default();
-    batch.add_transact(10, tx_set_1);
-    batch.add_transact(11, tx_set_2);
-    batch.add_transact(12, tx_set_3);
-    observer_service.transaction_did_commit(&Some(batch));
+    let mut batch = Vec::new();
+    batch.push(tx_report(10, tx_set_1.clone()));
+    batch.push(tx_report(11, tx_set_2.clone()));
+    batch.push(tx_report(12, tx_set_3));
+    observer_service.transaction_did_commit(&batch);
 
     let val = called_key.deref();
     assert_eq!(val, &RefCell::new(Some(key.clone())));
     let t = txids.deref();
     assert_eq!(t, &RefCell::new(vec![10, 11]));
 
-    let mut change_set_1 = BTreeSet::new();
-    change_set_1.insert(100);
-    let mut change_set_2 = BTreeSet::new();
-    change_set_2.insert(200);
-    change_set_2.insert(300);
     let c = changes.deref();
-    assert_eq!(c, &RefCell::new(vec![change_set_1, change_set_2]));
+    assert_eq!(c, &RefCell::new(vec![tx_set_1, tx_set_2]));
 }
 
 #[test]
 fn test_observer_not_notified_on_unregistered_change() {
     let mut observer_service = TxObservationService::default();
     let key = "Test Observing".to_string();
-    let register_attrs = get_registered_observer_attributes();
+    let registered_attrs = get_registered_observer_attributes();
 
     let txids = Rc::new(RefCell::new(Vec::new()));
     let changes = Rc::new(RefCell::new(Vec::new()));
@@ -137,9 +148,9 @@ fn test_observer_not_notified_on_unregistered_change() {
         *k = Some(obs_key.clone());
         let mut t = mut_txids.borrow_mut();
         let mut c = mut_changes.borrow_mut();
-        for (tx, changes) in batch.get().iter() {
-            t.push(tx.clone());
-            c.push(changes.clone());
+        for report in batch.iter() {
+            t.push(report.tx_id.clone());
+            c.push(report.changeset.clone());
         }
         t.sort();
     });
@@ -156,11 +167,11 @@ fn test_observer_not_notified_on_unregistered_change() {
     tx_set_2.insert(301);
     let mut tx_set_3 = BTreeSet::new();
     tx_set_3.insert(601);
-    let mut batch = BatchedTransaction::default();
-    batch.add_transact(10, tx_set_1);
-    batch.add_transact(11, tx_set_2);
-    batch.add_transact(12, tx_set_3);
-    observer_service.transaction_did_commit(&Some(batch));
+    let mut batch = Vec::new();
+    batch.push(tx_report(10, tx_set_1));
+    batch.push(tx_report(11, tx_set_2));
+    batch.push(tx_report(12, tx_set_3));
+    observer_service.transaction_did_commit(&batch);
 
     let val = called_key.deref();
     assert_eq!(val, &RefCell::new(None));

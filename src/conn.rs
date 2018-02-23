@@ -48,7 +48,6 @@ use mentat_db::{
     transact,
     transact_terms,
     AttributeSet,
-    BatchedTransaction,
     PartitionMap,
     TxObservationService,
     TxObserver,
@@ -192,7 +191,7 @@ pub struct InProgress<'a, 'c> {
     schema: Schema,
     cache: RwLockWriteGuard<'a, SQLiteAttributeCache>,
     use_caching: bool,
-    transactions: Option<BatchedTransaction>,
+    tx_reports: Vec<TxReport>,
     observer_service: &'a Mutex<TxObservationService>,
 }
 
@@ -353,25 +352,14 @@ impl<'a, 'c> InProgress<'a, 'c> {
         self.use_caching = yesno;
     }
 
-    fn record_transact(&mut self, report: &TxReport, changes: AttributeSet) {
-        match self.transactions {
-            Some(ref mut batch) => batch.add_transact(report.tx_id.clone(), changes),
-            None => {
-                let mut batch = BatchedTransaction::default();
-                batch.add_transact(report.tx_id.clone(), changes);
-                self.transactions = Some(batch);
-            },
-        }
-    }
-
     pub fn transact_terms<I>(&mut self, terms: I, tempid_set: InternSet<TempId>) -> Result<TxReport> where I: IntoIterator<Item=TermWithTempIds> {
-        let (report, next_partition_map, next_schema, changes) = transact_terms(&self.transaction,
+        let (report, next_partition_map, next_schema) = transact_terms(&self.transaction,
                                                                        self.partition_map.clone(),
                                                                        &self.schema,
                                                                        &self.schema,
                                                                        terms,
                                                                        tempid_set)?;
-        self.record_transact(&report, changes);
+        self.tx_reports.push(report.clone());
         self.partition_map = next_partition_map;
         if let Some(schema) = next_schema {
             self.schema = schema;
@@ -388,9 +376,8 @@ impl<'a, 'c> InProgress<'a, 'c> {
         //    `Metadata` on return. If we used `Cell` or other mechanisms, we'd be using
         //    `Default::default` in those situations to extract the partition map, and so there
         //    would still be some cost.
-        let (report, next_partition_map, next_schema, changes) = transact(&self.transaction, self.partition_map.clone(), &self.schema, &self.schema, entities)?;
-
-        self.record_transact(&report, changes);
+        let (report, next_partition_map, next_schema) = transact(&self.transaction, self.partition_map.clone(), &self.schema, &self.schema, entities)?;
+        self.tx_reports.push(report.clone());
 
         self.partition_map = next_partition_map;
         if let Some(schema) = next_schema {
@@ -426,7 +413,7 @@ impl<'a, 'c> InProgress<'a, 'c> {
         // in which case we no longer have the transaction
         self.transaction.commit()?;
         let mut observer_service = self.observer_service.lock().unwrap();
-        observer_service.transaction_did_commit(&self.transactions);
+        observer_service.transaction_did_commit(&self.tx_reports);
 
         metadata.generation += 1;
         metadata.partition_map = self.partition_map;
@@ -679,7 +666,7 @@ impl Conn {
             schema: (*current_schema).clone(),
             cache: self.attribute_cache.write().unwrap(),
             use_caching: true,
-            transactions: None,
+            tx_reports: Vec::new(),
             observer_service: &self.tx_observer_service,
         })
     }
@@ -1164,53 +1151,54 @@ mod tests {
         registered_attrs
     }
 
+    fn add_schema(conn: &mut Conn, mut sqlite: &mut rusqlite::Connection) {
+        // transact some schema
+        let mut in_progress = conn.begin_transaction(&mut sqlite).expect("expected in progress");
+        in_progress.ensure_vocabulary(&Definition {
+            name: kw!(:todo/items),
+            version: 1,
+            attributes: vec![
+                (kw!(:todo/uuid),
+                AttributeBuilder::new()
+                    .value_type(ValueType::Uuid)
+                    .multival(false)
+                    .unique(Unique::Value)
+                    .index(true)
+                    .build()),
+                (kw!(:todo/name),
+                AttributeBuilder::new()
+                    .value_type(ValueType::String)
+                    .multival(false)
+                    .fulltext(true)
+                    .build()),
+                (kw!(:todo/completion_date),
+                AttributeBuilder::new()
+                    .value_type(ValueType::Instant)
+                    .multival(false)
+                    .build()),
+                (kw!(:label/name),
+                AttributeBuilder::new()
+                    .value_type(ValueType::String)
+                    .multival(false)
+                    .unique(Unique::Value)
+                    .fulltext(true)
+                    .index(true)
+                    .build()),
+                (kw!(:label/color),
+                AttributeBuilder::new()
+                    .value_type(ValueType::String)
+                    .multival(false)
+                    .build()),
+            ],
+        }).expect("expected vocubulary");
+        in_progress.commit().expect("Expected vocabulary committed");
+    }
+
     #[test]
     fn test_observer_notified_on_registered_change() {
         let mut sqlite = db::new_connection("").unwrap();
         let mut conn = Conn::connect(&mut sqlite).unwrap();
-
-        {
-            // transact some schema
-            let mut in_progress = conn.begin_transaction(&mut sqlite).expect("expected in progress");
-            in_progress.ensure_vocabulary(&Definition {
-                name: kw!(:todo/items),
-                version: 1,
-                attributes: vec![
-                    (kw!(:todo/uuid),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::Uuid)
-                        .multival(false)
-                        .unique(Unique::Value)
-                        .index(true)
-                        .build()),
-                    (kw!(:todo/name),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::String)
-                        .multival(false)
-                        .fulltext(true)
-                        .build()),
-                    (kw!(:todo/completion_date),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::Instant)
-                        .multival(false)
-                        .build()),
-                    (kw!(:label/name),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::String)
-                        .multival(false)
-                        .unique(Unique::Value)
-                        .fulltext(true)
-                        .index(true)
-                        .build()),
-                    (kw!(:label/color),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::String)
-                        .multival(false)
-                        .build()),
-                ],
-            }).expect("expected vocubulary");
-            in_progress.commit().expect("Expected vocabulary committed");
-        }
+        add_schema(&mut conn, &mut sqlite);
 
         let name_entid: Entid = conn.current_schema().get_entid(&kw!(:todo/name)).expect("entid to exist for name").into();
         let date_entid: Entid = conn.current_schema().get_entid(&kw!(:todo/completion_date)).expect("entid to exist for completion_date").into();
@@ -1232,9 +1220,9 @@ mod tests {
             *k = Some(obs_key.clone());
             let mut t = mut_txids.borrow_mut();
             let mut c = mut_changes.borrow_mut();
-            for (tx, changes) in batch.get().iter() {
-                t.push(tx.clone());
-                c.push(changes.clone());
+            for report in batch.iter() {
+                t.push(report.tx_id.clone());
+                c.push(report.changeset.clone());
             }
             t.sort();
         });
@@ -1247,21 +1235,18 @@ mod tests {
         {
             let mut in_progress = conn.begin_transaction(&mut sqlite).expect("expected transaction");
             for i in 0..3 {
-                let mut change_set = BTreeSet::new();
                 let name = format!("todo{}", i);
                 let uuid = Uuid::new_v4();
                 let mut builder = in_progress.builder().describe_tempid(&name);
                 builder.add_kw( &kw!(:todo/uuid), TypedValue::Uuid(uuid)).expect("Expected added uuid");
                 builder.add_kw(&kw!(:todo/name), TypedValue::typed_string(&name)).expect("Expected added name");
-                change_set.insert(name_entid.clone());
                 if i % 2 == 0 {
                     builder.add_kw(&kw!(:todo/completion_date), TypedValue::current_instant()).expect("Expected added date");
-                    change_set.insert(date_entid.clone());
                 }
                 let (ip, r) = builder.transact();
                 let report = r.expect("expected a report");
                 tx_ids.push(report.tx_id.clone());
-                changesets.push(change_set);
+                changesets.push(report.changeset.clone());
                 in_progress = ip;
             }
             let mut builder = in_progress.builder().describe_tempid("Label");
@@ -1283,49 +1268,7 @@ mod tests {
     fn test_observer_not_notified_on_unregistered_change() {
         let mut sqlite = db::new_connection("").unwrap();
         let mut conn = Conn::connect(&mut sqlite).unwrap();
-
-        {
-            // transact some schema
-            let mut in_progress = conn.begin_transaction(&mut sqlite).expect("expected in progress");
-            in_progress.ensure_vocabulary(&Definition {
-                name: kw!(:todo/items),
-                version: 1,
-                attributes: vec![
-                    (kw!(:todo/uuid),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::Uuid)
-                        .multival(false)
-                        .unique(Unique::Value)
-                        .index(true)
-                        .build()),
-                    (kw!(:todo/name),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::String)
-                        .multival(false)
-                        .fulltext(true)
-                        .build()),
-                    (kw!(:todo/completion_date),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::Instant)
-                        .multival(false)
-                        .build()),
-                    (kw!(:label/name),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::String)
-                        .multival(false)
-                        .unique(Unique::Value)
-                        .fulltext(true)
-                        .index(true)
-                        .build()),
-                    (kw!(:label/color),
-                    AttributeBuilder::new()
-                        .value_type(ValueType::String)
-                        .multival(false)
-                        .build()),
-                ],
-            }).expect("expected vocubulary");
-            in_progress.commit().expect("Expected vocabulary committed");
-        }
+        add_schema(&mut conn, &mut sqlite);
 
         let name_entid: Entid = conn.current_schema().get_entid(&kw!(:todo/name)).expect("entid to exist for name").into();
         let date_entid: Entid = conn.current_schema().get_entid(&kw!(:todo/completion_date)).expect("entid to exist for completion_date").into();
@@ -1347,9 +1290,9 @@ mod tests {
             *k = Some(obs_key.clone());
             let mut t = mut_txids.borrow_mut();
             let mut c = mut_changes.borrow_mut();
-            for (tx, changes) in batch.get().iter() {
-                t.push(tx.clone());
-                c.push(changes.clone());
+            for report in batch.iter() {
+                t.push(report.tx_id.clone());
+                c.push(report.changeset.clone());
             }
             t.sort();
         });

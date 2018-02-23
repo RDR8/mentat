@@ -107,6 +107,7 @@ use schema::{
 };
 use types::{
     Attribute,
+    AttributeSet,
     AVPair,
     AVMap,
     Entid,
@@ -116,8 +117,6 @@ use types::{
     ValueType,
 };
 use upsert_resolution::Generation;
-
-pub type AttributeSet = BTreeSet<Entid>;
 
 /// A transaction on its way to being applied.
 #[derive(Debug)]
@@ -520,7 +519,7 @@ impl<'conn, 'a> Tx<'conn, 'a> {
     ///
     /// This approach is explained in https://github.com/mozilla/mentat/wiki/Transacting.
     // TODO: move this to the transactor layer.
-    pub fn transact_entities<I>(&mut self, entities: I) -> Result<(TxReport, AttributeSet)> where I: IntoIterator<Item=Entity> {
+    pub fn transact_entities<I>(&mut self, entities: I) -> Result<TxReport> where I: IntoIterator<Item=Entity> {
         // Pipeline stage 1: entities -> terms with tempids and lookup refs.
         let (terms_with_temp_ids_and_lookup_refs, tempid_set, lookup_ref_set) = self.entities_into_terms_with_temp_ids_and_lookup_refs(entities)?;
 
@@ -533,7 +532,7 @@ impl<'conn, 'a> Tx<'conn, 'a> {
         self.transact_simple_terms(terms_with_temp_ids, tempid_set)
     }
 
-    pub fn transact_simple_terms<I>(&mut self, terms: I, tempid_set: InternSet<TempId>) -> Result<(TxReport, AttributeSet)> where I: IntoIterator<Item=TermWithTempIds> {
+    pub fn transact_simple_terms<I>(&mut self, terms: I, tempid_set: InternSet<TempId>) -> Result<TxReport> where I: IntoIterator<Item=TermWithTempIds> {
         // TODO: push these into an internal transaction report?
         let mut tempids: BTreeMap<TempId, KnownEntid> = BTreeMap::default();
 
@@ -722,11 +721,12 @@ impl<'conn, 'a> Tx<'conn, 'a> {
             }
         }
 
-        Ok((TxReport {
+        Ok(TxReport {
             tx_id: self.tx_id,
             tx_instant,
             tempids: tempids,
-        }, affected_attrs))
+            changeset: affected_attrs,
+        })
     }
 }
 
@@ -742,13 +742,13 @@ fn start_tx<'conn, 'a, 'id>(conn: &'conn rusqlite::Connection,
     Ok(Tx::new(conn, partition_map, schema_for_mutation, schema, tx_id))
 }
 
-fn conclude_tx(tx: Tx, report: TxReport, changes: AttributeSet) -> Result<(TxReport, PartitionMap, Option<Schema>, AttributeSet)> {
+fn conclude_tx(tx: Tx, report: TxReport) -> Result<(TxReport, PartitionMap, Option<Schema>)> {
     // If the schema has moved on, return it.
     let next_schema = match tx.schema_for_mutation {
         Cow::Borrowed(_) => None,
         Cow::Owned(next_schema) => Some(next_schema),
     };
-    Ok((report, tx.partition_map, next_schema, changes))
+    Ok((report, tx.partition_map, next_schema))
 }
 
 /// Transact the given `entities` against the given SQLite `conn`, using the given metadata.
@@ -761,12 +761,12 @@ pub fn transact<'conn, 'a, 'id, I>(conn: &'conn rusqlite::Connection,
                               partition_map: PartitionMap,
                               schema_for_mutation: &'a Schema,
                               schema: &'a Schema,
-                              entities: I) -> Result<(TxReport, PartitionMap, Option<Schema>, AttributeSet)>
+                              entities: I) -> Result<(TxReport, PartitionMap, Option<Schema>)>
     where I: IntoIterator<Item=Entity> {
 
     let mut tx = start_tx(conn, partition_map, schema_for_mutation, schema)?;
-    let (report, changes) = tx.transact_entities(entities)?;
-    conclude_tx(tx, report, changes)
+    let report = tx.transact_entities(entities)?;
+    conclude_tx(tx, report)
 }
 
 /// Just like `transact`, but accepts lower-level inputs to allow bypassing the parser interface.
@@ -775,38 +775,23 @@ pub fn transact_terms<'conn, 'a, 'id, I>(conn: &'conn rusqlite::Connection,
                                     schema_for_mutation: &'a Schema,
                                     schema: &'a Schema,
                                     terms: I,
-                                    tempid_set: InternSet<TempId>) -> Result<(TxReport, PartitionMap, Option<Schema>, AttributeSet)>
+                                    tempid_set: InternSet<TempId>) -> Result<(TxReport, PartitionMap, Option<Schema>)>
     where I: IntoIterator<Item=TermWithTempIds> {
     let mut tx = start_tx(conn, partition_map, schema_for_mutation, schema)?;
-    let (report, changes) = tx.transact_simple_terms(terms, tempid_set)?;
-    conclude_tx(tx, report, changes)
-}
-
-#[derive(Default, Debug, Clone)]
-pub struct BatchedTransaction {
-    transactions: BTreeMap<Entid, AttributeSet>
-}
-
-impl BatchedTransaction {
-    pub fn add_transact(&mut self, txid: Entid, changes: AttributeSet ) {
-        self.transactions.insert(txid, changes);
-    }
-
-    pub fn get(&self) -> &BTreeMap<Entid, AttributeSet> {
-        &self.transactions
-    }
+    let report = tx.transact_simple_terms(terms, tempid_set)?;
+    conclude_tx(tx, report)
 }
 
 pub struct TxObserver {
-    notify_fn: Option<Box<FnMut(String, BatchedTransaction)>>
+    notify_fn: Option<Box<FnMut(String, Vec<TxReport>)>>
 }
 
 impl TxObserver {
-    pub fn new<F>(notify_fn: F) -> TxObserver where F: FnMut(String, BatchedTransaction) + 'static {
+    pub fn new<F>(notify_fn: F) -> TxObserver where F: FnMut(String, Vec<TxReport>) + 'static {
         TxObserver { notify_fn: Some(Box::new(notify_fn)) }
     }
 
-    fn notify(&mut self, key: String, transactions: BatchedTransaction) {
+    fn notify(&mut self, key: String, transactions: Vec<TxReport>) {
         if let Some(ref mut notify_fn) = self.notify_fn {
             (notify_fn)(key, transactions);
         } else {
@@ -850,15 +835,12 @@ impl<'o> TxObservationService {
         }).collect()
     }
 
-    pub fn transaction_did_commit(&mut self, batched_transactions: &Option<BatchedTransaction>) {
+    pub fn transaction_did_commit(&mut self, batched_transactions: &Vec<TxReport>) {
         // notify all observers about their relevant transactions
         let mut transactions = BTreeMap::new();
-        if let &Some(ref batch) = batched_transactions{
-            for (txid, changes) in batch.get().iter() {
-                for &(ref key, ref attrs) in self.matching_observers(changes).iter() {
-                    let obs_batch = transactions.entry(key.clone()).or_insert(BatchedTransaction::default());
-                    obs_batch.add_transact(txid.clone(), attrs.clone());
-                }
+        for report in batched_transactions.iter() {
+            for &(ref key, ref _attrs) in self.matching_observers(&report.changeset).iter() {
+                transactions.entry(key.clone()).or_insert(Vec::new()).push(report.clone());
             }
         }
 
