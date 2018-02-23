@@ -47,7 +47,6 @@ use mentat_db::db;
 use mentat_db::{
     transact,
     transact_terms,
-    AttributeSet,
     PartitionMap,
     TxObservationService,
     TxObserver,
@@ -752,8 +751,8 @@ impl Conn {
         }
     }
 
-    pub fn register_observer(&mut self, key: String, observer: TxObserver, attributes: AttributeSet) {
-        self.tx_observer_service.lock().unwrap().register(observer, key, attributes);
+    pub fn register_observer(&mut self, key: String, observer: TxObserver) {
+        self.tx_observer_service.lock().unwrap().register(key, observer);
     }
 
     pub fn unregister_observer(&mut self, key: &String) {
@@ -1117,11 +1116,9 @@ mod tests {
         let mut conn = Conn::connect(&mut sqlite).unwrap();
 
         let key = "Test Observer".to_string();
-        let registered_attrs = BTreeSet::new();
+        let tx_observer = TxObserver::new(BTreeSet::new(), move |_obs_key, _batch| {});
 
-        let tx_observer = TxObserver::new(move |_obs_key, _batch| {});
-
-        conn.register_observer(key.clone(), tx_observer, registered_attrs.clone());
+        conn.register_observer(key.clone(), tx_observer);
         assert!(conn.is_registered_as_observer(&key));
     }
 
@@ -1131,24 +1128,15 @@ mod tests {
         let mut conn = Conn::connect(&mut sqlite).unwrap();
 
         let key = "Test Observer".to_string();
-        let registered_attrs = BTreeSet::new();
 
-        let tx_observer = TxObserver::new(move |_obs_key, _batch| {});
+        let tx_observer = TxObserver::new(BTreeSet::new(), move |_obs_key, _batch| {});
 
-        conn.register_observer(key.clone(), tx_observer, registered_attrs.clone());
+        conn.register_observer(key.clone(), tx_observer);
         assert!(conn.is_registered_as_observer(&key));
 
         conn.unregister_observer(&key);
 
         assert!(!conn.is_registered_as_observer(&key));
-    }
-
-    fn get_registered_observer_attributes() -> BTreeSet<Entid> {
-        let mut registered_attrs = BTreeSet::new();
-        registered_attrs.insert(100);
-        registered_attrs.insert(200);
-        registered_attrs.insert(300);
-        registered_attrs
     }
 
     fn add_schema(conn: &mut Conn, mut sqlite: &mut rusqlite::Connection) {
@@ -1215,7 +1203,7 @@ mod tests {
         let mut_txids = Rc::clone(&txids);
         let mut_changes = Rc::clone(&changes);
         let mut_key = Rc::clone(&called_key);
-        let tx_observer = TxObserver::new(move |obs_key, batch| {
+        let tx_observer = TxObserver::new(registered_attrs, move |obs_key, batch| {
             let mut k = mut_key.borrow_mut();
             *k = Some(obs_key.clone());
             let mut t = mut_txids.borrow_mut();
@@ -1227,7 +1215,7 @@ mod tests {
             t.sort();
         });
 
-        conn.register_observer(key.clone(), tx_observer, registered_attrs.clone());
+        conn.register_observer(key.clone(), tx_observer);
         assert!(conn.is_registered_as_observer(&key));
 
         let mut tx_ids = Vec::new();
@@ -1285,7 +1273,7 @@ mod tests {
         let mut_txids = Rc::clone(&txids);
         let mut_changes = Rc::clone(&changes);
         let mut_key = Rc::clone(&called_key);
-        let tx_observer = TxObserver::new(move |obs_key, batch| {
+        let tx_observer = TxObserver::new(registered_attrs, move |obs_key, batch| {
             let mut k = mut_key.borrow_mut();
             *k = Some(obs_key.clone());
             let mut t = mut_txids.borrow_mut();
@@ -1297,7 +1285,7 @@ mod tests {
             t.sort();
         });
 
-        conn.register_observer(key.clone(), tx_observer, registered_attrs.clone());
+        conn.register_observer(key.clone(), tx_observer);
         assert!(conn.is_registered_as_observer(&key));
 
         {

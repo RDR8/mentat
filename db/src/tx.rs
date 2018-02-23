@@ -783,19 +783,28 @@ pub fn transact_terms<'conn, 'a, 'id, I>(conn: &'conn rusqlite::Connection,
 }
 
 pub struct TxObserver {
-    notify_fn: Option<Box<FnMut(String, Vec<TxReport>)>>
+    notify_fn: Option<Box<FnMut(String, Vec<TxReport>)>>,
+    attributes: AttributeSet,
 }
 
 impl TxObserver {
-    pub fn new<F>(notify_fn: F) -> TxObserver where F: FnMut(String, Vec<TxReport>) + 'static {
-        TxObserver { notify_fn: Some(Box::new(notify_fn)) }
+    pub fn new<F>(attributes: AttributeSet, notify_fn: F) -> TxObserver where F: FnMut(String, Vec<TxReport>) + 'static {
+        TxObserver {
+            notify_fn: Some(Box::new(notify_fn)),
+            attributes,
+        }
     }
 
-    fn notify(&mut self, key: String, transactions: Vec<TxReport>) {
-        if let Some(ref mut notify_fn) = self.notify_fn {
-            (notify_fn)(key, transactions);
-        } else {
-            eprintln!("no notify function specified for TxObserver");
+    fn notify(&mut self, key: String, reports: &Vec<TxReport>) {
+        let reports: Vec<TxReport> = reports.iter().filter( |report| {
+            self.attributes.intersection(&report.changeset).next().is_some()
+        }).map(|x| x.clone()).collect();
+        if !reports.is_empty() {
+            if let Some(ref mut notify_fn) = self.notify_fn {
+                (notify_fn)(key, reports);
+            } else {
+                eprintln!("no notify function specified for TxObserver");
+            }
         }
     }
 }
@@ -803,7 +812,6 @@ impl TxObserver {
 #[derive(Default)]
 pub struct TxObservationService {
     observers: BTreeMap<String, TxObserver>,
-    attributes: BTreeMap<String, AttributeSet>,
 }
 
 impl<'o> TxObservationService {
@@ -812,42 +820,18 @@ impl<'o> TxObservationService {
         self.observers.contains_key(key)
     }
 
-    pub fn register(&mut self, observer: TxObserver, key: String, attributes: AttributeSet) {
+    pub fn register(&mut self, key: String, observer: TxObserver) {
         self.observers.insert(key.clone(), observer);
-        self.attributes.insert(key, attributes);
     }
 
     pub fn deregister(&mut self, key: &String) {
         self.observers.remove(key);
-        self.attributes.remove(key);
     }
 
-    pub fn matching_observers(&self, changes: &AttributeSet) -> BTreeSet<(String, AttributeSet)> {
-        // filter observers by ones that care about attributes
-        // add the changes and transaction to the batched transactions of the observers that care about it.
-        self.attributes.iter().filter_map(|(key, attrs)| {
-            let intersect: AttributeSet = attrs.intersection(changes).cloned().collect();
-            if intersect.is_empty() {
-                None
-            } else {
-                Some((key.clone(), intersect))
-            }
-        }).collect()
-    }
-
-    pub fn transaction_did_commit(&mut self, batched_transactions: &Vec<TxReport>) {
+    pub fn transaction_did_commit(&mut self, reports: &Vec<TxReport>) {
         // notify all observers about their relevant transactions
-        let mut transactions = BTreeMap::new();
-        for report in batched_transactions.iter() {
-            for &(ref key, ref _attrs) in self.matching_observers(&report.changeset).iter() {
-                transactions.entry(key.clone()).or_insert(Vec::new()).push(report.clone());
-            }
-        }
-
-        for (key, batch) in transactions.into_iter() {
-            if let Some(observer) = self.observers.get_mut(&key) {
-                observer.notify(key.clone(), batch);
-            }
+        for (key, observer) in self.observers.iter_mut() {
+            observer.notify(key.clone(), reports);
         }
     }
 }

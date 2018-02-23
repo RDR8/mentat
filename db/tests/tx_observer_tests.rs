@@ -56,9 +56,9 @@ fn test_register_observer() {
     let key = "Test Observing".to_string();
     let registered_attrs = BTreeSet::new();
 
-    let tx_observer = TxObserver::new(move |_obs_key, _batch| {});
+    let tx_observer = TxObserver::new(registered_attrs, move |_obs_key, _batch| {});
 
-    observer_service.register(tx_observer, key.clone(), registered_attrs.clone());
+    observer_service.register(key.clone(), tx_observer);
     assert!(observer_service.is_registered(&key));
 }
 
@@ -68,9 +68,9 @@ fn test_deregister_observer() {
     let key = "Test Observing".to_string();
     let registered_attrs = BTreeSet::new();
 
-    let tx_observer = TxObserver::new(move |_obs_key, _batch| {});
+    let tx_observer = TxObserver::new(registered_attrs, move |_obs_key, _batch| {});
 
-    observer_service.register(tx_observer, key.clone(), registered_attrs.clone());
+    observer_service.register(key.clone(), tx_observer);
     assert!(observer_service.is_registered(&key));
 
     observer_service.deregister(&key);
@@ -91,7 +91,7 @@ fn test_observer_notified_on_registered_change() {
     let mut_txids = Rc::clone(&txids);
     let mut_changes = Rc::clone(&changes);
     let mut_key = Rc::clone(&called_key);
-    let tx_observer = TxObserver::new(move |obs_key, batch| {
+    let tx_observer = TxObserver::new(registered_attrs, move |obs_key, batch| {
         let mut k = mut_key.borrow_mut();
         *k = Some(obs_key.clone());
         let mut t = mut_txids.borrow_mut();
@@ -103,7 +103,7 @@ fn test_observer_notified_on_registered_change() {
         t.sort();
     });
 
-    observer_service.register(tx_observer, key.clone(), registered_attrs.clone());
+    observer_service.register(key.clone(), tx_observer);
     assert!(observer_service.is_registered(&key));
 
     let mut tx_set_1 = BTreeSet::new();
@@ -143,7 +143,7 @@ fn test_observer_not_notified_on_unregistered_change() {
     let mut_txids = Rc::clone(&txids);
     let mut_changes = Rc::clone(&changes);
     let mut_key = Rc::clone(&called_key);
-    let tx_observer = TxObserver::new(move |obs_key, batch| {
+    let tx_observer = TxObserver::new(registered_attrs, move |obs_key, batch| {
         let mut k = mut_key.borrow_mut();
         *k = Some(obs_key.clone());
         let mut t = mut_txids.borrow_mut();
@@ -155,7 +155,7 @@ fn test_observer_not_notified_on_unregistered_change() {
         t.sort();
     });
 
-    observer_service.register(tx_observer, key.clone(), registered_attrs.clone());
+    observer_service.register(key.clone(), tx_observer);
     assert!(observer_service.is_registered(&key));
 
     let mut tx_set_1 = BTreeSet::new();
