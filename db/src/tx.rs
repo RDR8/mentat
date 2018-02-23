@@ -731,7 +731,7 @@ impl<'conn, 'a> Tx<'conn, 'a> {
 }
 
 /// Initialize a new Tx object with a new tx id and a tx instant. Kick off the SQLite conn, too.
-fn start_tx<'conn, 'a, 'id>(conn: &'conn rusqlite::Connection,
+fn start_tx<'conn, 'a>(conn: &'conn rusqlite::Connection,
                        mut partition_map: PartitionMap,
                        schema_for_mutation: &'a Schema,
                        schema: &'a Schema) -> Result<Tx<'conn, 'a>> {
