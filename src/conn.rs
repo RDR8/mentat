@@ -462,6 +462,14 @@ impl Store {
                         direction,
                         CacheAction::Register)
     }
+
+    pub fn register_observer(&mut self, key: String, observer: TxObserver) {
+        self.conn.register_observer(key, observer);
+    }
+
+    pub fn unregister_observer(&mut self, key: &String) {
+        self.conn.unregister_observer(key);
+    }
 }
 
 impl Queryable for Store {
