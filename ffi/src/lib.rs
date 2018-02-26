@@ -13,7 +13,10 @@ extern crate mentat;
 use std::collections::{
     BTreeSet,
 };
-use std::os::raw::c_char;
+use std::os::raw::{
+    c_char,
+    c_void,
+};
 
 pub use mentat::{
     NamespacedKeyword,
@@ -26,11 +29,26 @@ pub mod utils;
 
 pub use utils::strings::{
     c_char_to_string,
+    string_to_c_char,
 };
 
+#[repr(C)]
 pub struct AttributeList {
-    pub attributes: Box<[*const c_char]>,
+    pub attributes: Box<[i64]>,
     pub len: usize
+}
+
+#[repr(C)]
+pub struct ExternTxReport {
+    pub txid: i64,
+    pub changes: Box<[i64]>,
+}
+
+#[repr(C)]
+pub struct Callback {
+    pub obj: *mut c_void,
+    pub destroy: extern fn(obj: *mut c_void),
+    pub callback_fn: extern fn(obj: *mut c_void, key: *const c_char, reports: *mut [ExternTxReport]),
 }
 
 #[no_mangle]
@@ -46,22 +64,26 @@ pub unsafe extern "C" fn store_destroy(store: *mut Store) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const c_char, attributes: *const AttributeList) {
+pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const c_char, attributes: *const AttributeList, callback: *mut Callback) {
     let store = &mut*store;
+    let callback = &mut*callback;
     let attrs = &*attributes;
     let mut attribute_set = BTreeSet::new();
     for attr in attrs.attributes.into_iter() {
-        let kw_str = c_char_to_string(*attr);
-        let parts: Vec<&str> = kw_str.split('/').collect();
-        assert!(parts.len() == 2);
-        let kw = NamespacedKeyword::new(parts[0], parts[1]);
-        if let Some(kw_entid) = store.conn().current_schema().get_entid(&kw) {
-            attribute_set.insert(kw_entid.into());
-        }
+        attribute_set.insert(*attr);
     }
     let key = c_char_to_string(key);
     let tx_observer = TxObserver::new(attribute_set, move |obs_key, batch| {
         println!("observer function called {:?}: {:?}", obs_key, batch);
+        let extern_reports: Vec<ExternTxReport> = batch.iter().map(|report| {
+            let changes: Vec<i64> = report.changeset.iter().map(|i|i.clone()).collect();
+            ExternTxReport {
+                txid: report.tx_id.clone(),
+                changes: changes.into_boxed_slice(),
+            }
+        }).collect();
+
+        (callback.callback_fn)(callback.obj, string_to_c_char(obs_key), Box::into_raw(extern_reports.into_boxed_slice()));
     });
     store.register_observer(key, tx_observer);
 }
