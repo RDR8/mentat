@@ -41,14 +41,20 @@ pub struct AttributeList {
 #[repr(C)]
 pub struct ExternTxReport {
     pub txid: i64,
-    pub changes: Box<[i64]>,
+    pub changes: AttributeList,
+}
+
+#[repr(C)]
+pub struct ExternTxReportList {
+    pub reports: Box<[ExternTxReport]>,
+    pub len: usize
 }
 
 #[repr(C)]
 pub struct Callback {
     pub obj: *mut c_void,
     pub destroy: extern fn(obj: *mut c_void),
-    pub callback_fn: extern fn(obj: *mut c_void, key: *const c_char, reports: *mut [ExternTxReport]),
+    pub callback_fn: extern fn(obj: *mut c_void, key: *const c_char, reports: *mut ExternTxReportList),
 }
 
 #[no_mangle]
@@ -77,13 +83,23 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const 
         println!("observer function called {:?}: {:?}", obs_key, batch);
         let extern_reports: Vec<ExternTxReport> = batch.iter().map(|report| {
             let changes: Vec<i64> = report.changeset.iter().map(|i|i.clone()).collect();
+            let len = changes.len();
+            let changelist = AttributeList {
+                attributes: changes.into_boxed_slice(),
+                len: len,
+            };
             ExternTxReport {
                 txid: report.tx_id.clone(),
-                changes: changes.into_boxed_slice(),
+                changes: changelist,
             }
         }).collect();
+        let len = extern_reports.len();
+        let reports = ExternTxReportList {
+            reports: extern_reports.into_boxed_slice(),
+            len: len,
+        };
 
-        (callback.callback_fn)(callback.obj, string_to_c_char(obs_key), Box::into_raw(extern_reports.into_boxed_slice()));
+        (callback.callback_fn)(callback.obj, string_to_c_char(obs_key), Box::into_raw(Box::new(reports)));
     });
     store.register_observer(key, tx_observer);
 }
