@@ -33,6 +33,7 @@ pub use utils::strings::{
 };
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct AttributeList {
     pub attributes: Box<[i64]>,
     pub len: usize
@@ -71,14 +72,24 @@ pub unsafe extern "C" fn store_destroy(store: *mut Store) {
 
 #[no_mangle]
 pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const c_char, attributes: *const AttributeList, callback: *mut Callback) {
+    println!("Registering observer");
     let store = &mut*store;
+    println!("got store");
     let callback = &mut*callback;
+    println!("got callback");
     let attrs = &*attributes;
+    println!("got attributes");
     let mut attribute_set = BTreeSet::new();
-    for attr in attrs.attributes.into_iter() {
-        attribute_set.insert(*attr);
+    println!("iterating attributes {:?}", attrs);
+    let len = attrs.len;
+    for i in 0..len {
+        let attr = attrs.attributes[i];
+        println!("adding {} to attribute set", attr);
+        attribute_set.insert(attr);
     }
+    println!("Attribute set  {:?}", attribute_set);
     let key = c_char_to_string(key);
+    println!("Registering observer for {:?}", key);
     let tx_observer = TxObserver::new(attribute_set, move |obs_key, batch| {
         println!("observer function called {:?}: {:?}", obs_key, batch);
         let extern_reports: Vec<ExternTxReport> = batch.iter().map(|report| {
@@ -101,12 +112,26 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const 
 
         (callback.callback_fn)(callback.obj, string_to_c_char(obs_key), Box::into_raw(Box::new(reports)));
     });
+    println!("TxObserver created");
     store.register_observer(key, tx_observer);
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn store_unregister_observer(store: *mut Store, key: *const c_char) {
+    println!("Unregistering observer");
     let store = &mut*store;
     let key = c_char_to_string(key);
+    println!("Unregistering observer for {:?}", key);
     store.unregister_observer(&key);
+    println!("{:?} unregistered", key);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn store_entid_for_attribute(store: *mut Store, attr: *const c_char) -> i64 {
+    let store = &mut*store;
+    let attr_name = c_char_to_string(attr);
+    let parts: Vec<&str> = attr_name.split("/").collect();
+    let kw = NamespacedKeyword::new(parts[0], parts[1]);
+    let entid = store.conn().current_schema().get_entid(&kw).unwrap();
+    entid.into()
 }

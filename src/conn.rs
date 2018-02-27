@@ -468,7 +468,9 @@ impl Store {
     }
 
     pub fn unregister_observer(&mut self, key: &String) {
+        println!("Store: unregistering observer for key {:?}", key);
         self.conn.unregister_observer(key);
+        println!("Store: unregistered observer for key {:?}", key);
     }
 }
 
@@ -765,7 +767,9 @@ impl Conn {
     }
 
     pub fn unregister_observer(&mut self, key: &String) {
+        println!("Conn: unregistering observer for key {:?}", key);
         self.tx_observer_service.lock().unwrap().deregister(key);
+        println!("Conn: unregistered observer for key {:?}", key);
     }
 }
 
