@@ -17,6 +17,7 @@ use std::os::raw::{
     c_char,
     c_void,
 };
+use std::slice;
 
 pub use mentat::{
     NamespacedKeyword,
@@ -40,12 +41,14 @@ pub struct AttributeList {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct ExternTxReport {
     pub txid: i64,
     pub changes: AttributeList,
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct ExternTxReportList {
     pub reports: Box<[ExternTxReport]>,
     pub len: usize
@@ -55,7 +58,7 @@ pub struct ExternTxReportList {
 pub struct Callback {
     pub obj: *mut c_void,
     pub destroy: extern fn(obj: *mut c_void),
-    pub callback_fn: extern fn(obj: *mut c_void, key: *const c_char, reports: *mut ExternTxReportList),
+    pub callback_fn: extern fn(),
 }
 
 #[no_mangle]
@@ -71,19 +74,17 @@ pub unsafe extern "C" fn store_destroy(store: *mut Store) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const c_char, attributes: *const AttributeList, callback: *mut Callback) {
+pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const c_char, attributes: *const i64, attributes_len: usize, callback: *mut Callback) {
     println!("Registering observer");
     let store = &mut*store;
     println!("got store");
     let callback = &mut*callback;
     println!("got callback");
-    let attrs = &*attributes;
-    println!("got attributes");
     let mut attribute_set = BTreeSet::new();
-    println!("iterating attributes {:?}", attrs);
-    let len = attrs.len;
-    for i in 0..len {
-        let attr = attrs.attributes[i];
+    let slice = slice::from_raw_parts(attributes, attributes_len);
+    println!("slice {:?}", slice);
+    for i in 0..attributes_len {
+        let attr = slice[i];
         println!("adding {} to attribute set", attr);
         attribute_set.insert(attr);
     }
@@ -104,13 +105,18 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const 
                 changes: changelist,
             }
         }).collect();
+        println!("ExternReports {:?}", extern_reports);
         let len = extern_reports.len();
         let reports = ExternTxReportList {
             reports: extern_reports.into_boxed_slice(),
             len: len,
         };
+        println!("reports {:?}", reports);
+        println!("calling callback {:?}", callback.obj);
 
-        (callback.callback_fn)(callback.obj, string_to_c_char(obs_key), Box::into_raw(Box::new(reports)));
+        (callback.callback_fn)();
+        // (callback.callback_fn)(callback.obj, string_to_c_char(obs_key), Box::into_raw(Box::new(reports)));
+        println!("callback called");
     });
     println!("TxObserver created");
     store.register_observer(key, tx_observer);
@@ -128,10 +134,14 @@ pub unsafe extern "C" fn store_unregister_observer(store: *mut Store, key: *cons
 
 #[no_mangle]
 pub unsafe extern "C" fn store_entid_for_attribute(store: *mut Store, attr: *const c_char) -> i64 {
+    println!("store_entid_for_attribute");
     let store = &mut*store;
     let attr_name = c_char_to_string(attr);
+    println!("attr_name {:?}", attr_name);
     let parts: Vec<&str> = attr_name.split("/").collect();
     let kw = NamespacedKeyword::new(parts[0], parts[1]);
+    println!("kw {:?}", kw);
     let entid = store.conn().current_schema().get_entid(&kw).unwrap();
+    println!("entid {:?}", entid);
     entid.into()
 }

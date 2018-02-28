@@ -212,13 +212,17 @@ impl<'a, 'c> InProgressBuilder<'a, 'c> {
     /// Transact the contents of the builder and commit the `InProgress`. If any
     /// step fails, roll back. Return the `TxReport`.
     pub fn commit(self) -> Result<TxReport> {
+        println!("committing InProgressBuilder");
         let mut in_progress = self.in_progress;
         self.builder
             .build()
             .and_then(|(terms, tempid_set)| {
+                println!("transacting terms");
                 in_progress.transact_terms(terms, tempid_set)
                            .and_then(|report| {
+                               println!("committing in_progress");
                                in_progress.commit()?;
+                               println!("returning report");
                                Ok(report)
                            })
             })
