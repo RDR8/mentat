@@ -13,11 +13,9 @@ extern crate mentat;
 use std::collections::{
     BTreeSet,
 };
-use std::ops::Deref;
 use std::os::raw::{
     c_char,
     c_int,
-    c_void,
 };
 use std::slice;
 
@@ -57,32 +55,6 @@ pub struct ExternTxReportList {
     pub len: usize
 }
 
-#[derive(Debug)]
-struct CallbackWrapper(Callback);
-impl Deref for CallbackWrapper {
-    type Target = Callback;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Drop for CallbackWrapper {
-    fn drop(&mut self) {
-        (self.destroy)(self.obj);
-    }
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub struct Callback {
-    pub obj: *mut c_void,
-    pub destroy: extern fn(obj: *mut c_void),
-    pub callback_fn: extern fn(obj: *mut c_void, key: *const c_char, reports: *mut ExternTxReportList),
-}
-
-unsafe impl Send for Callback {}
-
 #[no_mangle]
 pub extern "C" fn new_store(uri: *const c_char) -> *mut Store {
     let uri = c_char_to_string(uri);
@@ -96,9 +68,12 @@ pub unsafe extern "C" fn store_destroy(store: *mut Store) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const c_char, attributes: *const i64, attributes_len: usize, callback: Callback) {
+pub unsafe extern "C" fn store_register_observer(store: *mut Store,
+                                                   key: *const c_char,
+                                                   attributes: *const i64,
+                                                   attributes_len: usize,
+                                                   callback: extern fn(key: *const c_char, reports: *mut ExternTxReportList)) {
     let store = &mut*store;
-    let callback = CallbackWrapper(callback);
     let mut attribute_set = BTreeSet::new();
     let slice = slice::from_raw_parts(attributes, attributes_len);
     for i in 0..attributes_len {
@@ -124,7 +99,7 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store, key: *const 
             reports: extern_reports.into_boxed_slice(),
             len: len,
         };
-        (callback.callback_fn)(callback.obj, string_to_c_char(obs_key), Box::into_raw(Box::new(reports)));
+        callback(string_to_c_char(obs_key), Box::into_raw(Box::new(reports)));
     });
     store.register_observer(key, tx_observer);
 }
