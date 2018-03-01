@@ -76,6 +76,7 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store,
     }
     let key = c_char_to_string(key);
     let tx_observer = TxObserver::new(attribute_set, move |obs_key, batch| {
+        log::d(&format!("Calling observer registered for {:?}", obs_key));
         let extern_reports: Vec<ExternTxReport> = batch.iter().map(|report| {
             let changes: Vec<i64> = report.changeset.iter().map(|i|i.clone()).collect();
             let len = changes.len();
