@@ -20,8 +20,6 @@ use std::os::raw::{
     c_void,
 };
 use std::slice;
-use std::thread;
-use std::time;
 
 pub use mentat::{
     NamespacedKeyword,
@@ -31,6 +29,7 @@ pub use mentat::{
 };
 
 pub mod utils;
+pub mod android;
 
 pub use utils::strings::{
     c_char_to_string,
