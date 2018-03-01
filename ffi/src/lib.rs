@@ -105,7 +105,8 @@ pub unsafe extern "C" fn store_unregister_observer(store: *mut Store, key: *cons
 #[no_mangle]
 pub unsafe extern "C" fn store_entid_for_attribute(store: *mut Store, attr: *const c_char) -> i64 {
     let store = &mut*store;
-    let attr_name = c_char_to_string(attr);
+    let mut keyword_string = c_char_to_string(attr);
+    let attr_name = keyword_string.split_off(1);
     let parts: Vec<&str> = attr_name.split("/").collect();
     let kw = NamespacedKeyword::new(parts[0], parts[1]);
     let entid = store.conn().current_schema().get_entid(&kw).unwrap();
