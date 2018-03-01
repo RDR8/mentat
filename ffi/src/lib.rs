@@ -36,16 +36,10 @@ pub use utils::strings::{
 
 #[repr(C)]
 #[derive(Debug, Clone)]
-pub struct AttributeList {
-    pub attributes: Box<[i64]>,
-    pub len: usize
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
 pub struct ExternTxReport {
     pub txid: i64,
-    pub changes: AttributeList,
+    pub changes: Box<[i64]>,
+    pub changes_len: usize
 }
 
 #[repr(C)]
@@ -85,13 +79,10 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store,
         let extern_reports: Vec<ExternTxReport> = batch.iter().map(|report| {
             let changes: Vec<i64> = report.changeset.iter().map(|i|i.clone()).collect();
             let len = changes.len();
-            let changelist = AttributeList {
-                attributes: changes.into_boxed_slice(),
-                len: len,
-            };
             ExternTxReport {
                 txid: report.tx_id.clone(),
-                changes: changelist,
+                changes: changes.into_boxed_slice(),
+                changes_len: len,
             }
         }).collect();
         let len = extern_reports.len();
@@ -130,8 +121,8 @@ pub unsafe extern "C" fn tx_report_list_entry_at(tx_report_list: *mut ExternTxRe
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn changelist_entry_at(attribute_list: *mut AttributeList, index: c_int) -> i64 {
-    let attribute_list = &*attribute_list;
+pub unsafe extern "C" fn changelist_entry_at(tx_report: *mut ExternTxReport, index: c_int) -> i64 {
+    let tx_report = &*tx_report;
     let index = index as usize;
-    attribute_list.attributes[index].clone()
+    tx_report.changes[index].clone()
 }
