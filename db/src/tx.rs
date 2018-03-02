@@ -118,6 +118,30 @@ use types::{
 };
 use upsert_resolution::Generation;
 
+use std::os::raw::c_char;
+use std::os::raw::c_int;
+use std::ffi::CString;
+
+pub const ANDROID_LOG_DEBUG: i32 = 3;
+#[cfg(all(target_os="android", not(test)))]
+extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
+
+#[cfg(all(target_os="android", not(test)))]
+pub fn d(message: &str) {
+    let tag = "mentat_db::tx";
+    let message = CString::new(message).unwrap();
+    let message = message.as_ptr();
+    let tag = CString::new(tag).unwrap();
+    let tag = tag.as_ptr();
+    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+}
+
+#[cfg(all(not(target_os="android")))]
+pub fn d(message: &str) {
+    let tag = "mentat_db::tx";
+    println!("d: {}: {}", tag, message);
+}
+
 /// A transaction on its way to being applied.
 #[derive(Debug)]
 pub struct Tx<'conn, 'a> {
@@ -816,11 +840,13 @@ impl TxObserver {
         }
         if !matching_reports.is_empty() {
             if let Some(ref mut notify_fn) = self.notify_fn {
-                println!("Notifying {:?} about tx {:?}", key, matching_reports);
+                d(&format!("Notifying {:?} about tx {:?}", key, matching_reports));
                 (notify_fn)(key, matching_reports);
             } else {
-                eprintln!("no notify function specified for TxObserver");
+                d("no notify function specified for TxObserver");
             }
+        } else {
+            d(&format!("No matching reports for observer {:?} registered for updates on attributes {:?}: {:?}", key, reports, self.attributes));
         }
     }
 }
@@ -852,6 +878,7 @@ impl TxObservationService {
     pub fn transaction_did_commit(&mut self, reports: &Vec<TxReport>) {
         // notify all observers about their relevant transactions
         for (key, observer) in self.observers.iter_mut() {
+            d(&format!("Notifying observer registered for key {:?}", key));
             observer.notify(key.clone(), reports);
         }
     }

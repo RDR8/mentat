@@ -53,18 +53,23 @@ use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::ffi::CString;
 pub const ANDROID_LOG_DEBUG: i32 = 3;
+#[cfg(all(target_os="android", not(test)))]
 extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
 
+#[cfg(all(target_os="android", not(test)))]
+pub fn d(message: &str) {
+    let tag = "mentat_db::tx_processor";
+    let message = CString::new(message).unwrap();
+    let message = message.as_ptr();
+    let tag = CString::new(tag).unwrap();
+    let tag = tag.as_ptr();
+    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+}
+
+#[cfg(all(not(target_os="android")))]
 pub fn d(message: &str) {
     let tag = "mentat_db::tx_processor";
     println!("d: {}: {}", tag, message);
-    if cfg!(target_os = "android") {
-        let message = CString::new(message).unwrap();
-        let message = message.as_ptr();
-        let tag = CString::new(tag).unwrap();
-        let tag = tag.as_ptr();
-        unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
-    }
 }
 
 impl<'dbtx, 't, T> DatomsIterator<'dbtx, 't, T>
@@ -173,7 +178,7 @@ impl Processor {
                         at_tx = at_tx + 1;
                         d(&format!("at_tx! {:?}", at_tx));
                         current_tx = Some(datom.tx);
-                        if at_tx <= 3 && skip_first_tx {
+                        if at_tx <= 2 && skip_first_tx {
                             d(&format!("skipping subsequent"));
                             continue;
                         }

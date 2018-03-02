@@ -343,19 +343,25 @@ impl<'a, 'c> HasSchema for InProgress<'a, 'c> {
 use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::ffi::CString;
+
 pub const ANDROID_LOG_DEBUG: i32 = 3;
+#[cfg(all(target_os="android", not(test)))]
 extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
 
+#[cfg(all(target_os="android", not(test)))]
 pub fn d(message: &str) {
-    let tag = "mentat::Conn";
+    let tag = "mentat::conn";
+    let message = CString::new(message).unwrap();
+    let message = message.as_ptr();
+    let tag = CString::new(tag).unwrap();
+    let tag = tag.as_ptr();
+    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+}
+
+#[cfg(all(not(target_os="android")))]
+pub fn d(message: &str) {
+    let tag = "mentat::conn";
     println!("d: {}: {}", tag, message);
-    if cfg!(target_os = "android") {
-        let message = CString::new(message).unwrap();
-        let message = message.as_ptr();
-        let tag = CString::new(tag).unwrap();
-        let tag = tag.as_ptr();
-        unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
-    }
 }
 
 impl<'a, 'c> InProgress<'a, 'c> {

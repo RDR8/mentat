@@ -53,18 +53,23 @@ use std::os::raw::c_char;
 use std::os::raw::c_int;
 use std::ffi::CString;
 pub const ANDROID_LOG_DEBUG: i32 = 3;
+#[cfg(all(target_os="android", not(test)))]
 extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
 
+#[cfg(all(target_os="android", not(test)))]
+pub fn d(message: &str) {
+    let tag = "mentat_tolstoy::syncer";
+    let message = CString::new(message).unwrap();
+    let message = message.as_ptr();
+    let tag = CString::new(tag).unwrap();
+    let tag = tag.as_ptr();
+    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+}
+
+#[cfg(all(not(target_os="android")))]
 pub fn d(message: &str) {
     let tag = "mentat_tolstoy::syncer";
     println!("d: {}: {}", tag, message);
-    if cfg!(target_os = "android") {
-        let message = CString::new(message).unwrap();
-        let message = message.as_ptr();
-        let tag = CString::new(tag).unwrap();
-        let tag = tag.as_ptr();
-        unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
-    }
 }
 
 pub struct Syncer {}
@@ -220,11 +225,13 @@ impl Syncer {
 
     fn download_theirs(_db_tx: &mut rusqlite::Transaction, remote_client: &RemoteClient, remote_head: &Uuid) -> Result<Vec<Tx>> {
         let new_txs = remote_client.get_transactions(remote_head)?;
+        d(&format!("there are {} new_txs on the remote client", new_txs.len()));
         let mut tx_list = Vec::new();
 
         for tx in new_txs {
             let mut tx_parts = Vec::new();
             let chunks = remote_client.get_chunks(&tx)?;
+            d(&format!("received {} chunks from remote client", chunks.len()));
 
             // We pass along all of the downloaded parts, including transaction's
             // metadata datom. Transactor is expected to do the right thing, and
