@@ -49,19 +49,19 @@ use tx_mapper::TxMapper;
 // See https://github.com/mozilla/mentat/issues/571
 // Below is some debug Android-friendly logging:
 
-// use std::os::raw::c_char;
-// use std::os::raw::c_int;
-// use std::ffi::CString;
-// pub const ANDROID_LOG_DEBUG: i32 = 3;
-// extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
+use std::os::raw::c_char;
+use std::os::raw::c_int;
+use std::ffi::CString;
+pub const ANDROID_LOG_DEBUG: i32 = 3;
+extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
 
 pub fn d(message: &str) {
     println!("d: {}", message);
-    // let message = CString::new(message).unwrap();
-    // let message = message.as_ptr();
-    // let tag = CString::new("RustyToodle").unwrap();
-    // let tag = tag.as_ptr();
-    // unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+    let message = CString::new(message).unwrap();
+    let message = message.as_ptr();
+    let tag = CString::new("RustyToodle").unwrap();
+    let tag = tag.as_ptr();
+    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
 }
 
 pub struct Syncer {}
@@ -194,6 +194,7 @@ impl Syncer {
         let mut uploader = UploadingTxReceiver::new(remote_client, remote_head);
         Processor::process(db_tx, from_tx, &mut uploader)?;
         if !uploader.is_done {
+            d(&format!("upload_ours: TxProcessorUnfinished!"));
             bail!(ErrorKind::TxProcessorUnfinished);
         }
         // Last tx uuid uploaded by the tx receiver.
@@ -263,6 +264,7 @@ impl Syncer {
         // without walking the table at all, and use the tx index.
         Processor::process(db_tx, None, &mut inquiring_tx_receiver)?;
         if !inquiring_tx_receiver.is_done {
+            d(&format!("!inquiring_tx_receiver.is_done"));
             bail!(ErrorKind::TxProcessorUnfinished);
         }
         let (have_local_changes, local_store_empty) = match inquiring_tx_receiver.last_tx {
@@ -274,6 +276,7 @@ impl Syncer {
             },
             None => (false, true)
         };
+        d(&format!("has_local_changes {:?}, local_empty {:?}", have_local_changes, local_store_empty));
 
         // Check if the server is empty - populate it.
         if remote_head == Uuid::nil() {
@@ -400,7 +403,6 @@ impl RemoteClient {
         d(&format!("running..."));
 
         let head_json = core.run(work)?;
-        d(&format!("got head: {:?}", &head_json.head));
         Ok(head_json.head)
     }
 
