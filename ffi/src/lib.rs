@@ -34,6 +34,8 @@ pub use utils::strings::{
     string_to_c_char,
 };
 
+use utils::log;
+
 #[repr(C)]
 #[derive(Debug, Clone)]
 pub struct ExternTxReport {
@@ -64,16 +66,18 @@ pub unsafe extern "C" fn store_destroy(store: *mut Store) {
 #[no_mangle]
 pub unsafe extern "C" fn store_register_observer(store: *mut Store,
                                                    key: *const c_char,
-                                                   attributes: *const i64,
+                                                   attributes: *const c_int,
                                                    attributes_len: usize,
-                                                   callback: extern fn(key: *const c_char, reports: *mut ExternTxReportList)) {
+                                                   callback: extern fn(key: *const c_char)) {//, reports: &ExternTxReportList)) {
     let store = &mut*store;
     let mut attribute_set = BTreeSet::new();
     let slice = slice::from_raw_parts(attributes, attributes_len);
+    log::d(&format!("Observer attribute slice: {:?}", slice));
     for i in 0..attributes_len {
-        let attr = slice[i];
+        let attr = slice[i].into();
         attribute_set.insert(attr);
     }
+    log::d(&format!("Observer attribute set: {:?}", attribute_set));
     let key = c_char_to_string(key);
     let tx_observer = TxObserver::new(attribute_set, move |obs_key, batch| {
         log::d(&format!("Calling observer registered for {:?}", obs_key));
@@ -91,8 +95,9 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store,
             reports: extern_reports.into_boxed_slice(),
             len: len,
         };
-        callback(string_to_c_char(obs_key), Box::into_raw(Box::new(reports)));
+        callback(string_to_c_char(obs_key));//, &reports);
     });
+    log::d(&format!("Registering observer for key: {:?}", key));
     store.register_observer(key, tx_observer);
 }
 
@@ -100,17 +105,32 @@ pub unsafe extern "C" fn store_register_observer(store: *mut Store,
 pub unsafe extern "C" fn store_unregister_observer(store: *mut Store, key: *const c_char) {
     let store = &mut*store;
     let key = c_char_to_string(key);
+    log::d(&format!("Unregistering observer for key: {:?}", key));
     store.unregister_observer(&key);
 }
+
+use std::panic;
 
 #[no_mangle]
 pub unsafe extern "C" fn store_entid_for_attribute(store: *mut Store, attr: *const c_char) -> i64 {
     let store = &mut*store;
+    log::d(&format!("store_entid_for_attribute got store"));
     let mut keyword_string = c_char_to_string(attr);
+    log::d(&format!("store_entid_for_attribute keyword_string {:?}", keyword_string));
     let attr_name = keyword_string.split_off(1);
+    log::d(&format!("store_entid_for_attribute attr_name {:?}", attr_name));
     let parts: Vec<&str> = attr_name.split("/").collect();
+    log::d(&format!("store_entid_for_attribute parts {:?}", parts));
     let kw = NamespacedKeyword::new(parts[0], parts[1]);
-    let entid = store.conn().current_schema().get_entid(&kw).unwrap();
+    log::d(&format!("store_entid_for_attribute kw {:?}", kw));
+    let conn = store.conn();
+    log::d(&format!("store_entid_for_attribute conn"));
+    let current_schema = conn.current_schema();
+    log::d(&format!("store_entid_for_attribute current_schema {:?}", current_schema));
+    let got_entid = current_schema.get_entid(&kw);
+    log::d(&format!("store_entid_for_attribute got_entid {:?}", got_entid));
+    let entid = got_entid.unwrap();
+    log::d(&format!("store_entid_for_attribute entid {:?}", entid));
     entid.into()
 }
 
