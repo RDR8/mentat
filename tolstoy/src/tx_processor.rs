@@ -174,18 +174,23 @@ impl Processor {
                             d(&format!("skipping subsequent"));
                             continue;
                         }
+                        d(&format!("Some: calling receiver.tx"));
                         receiver.tx(
                             datom.tx,
                             &mut DatomsIterator::new(&datom, &mut rows)
                         )?;
+                        d(&format!("Some: returned from receiver.tx"));
+                    } else {
+                        d(&format!("skipping over datom in current tx block"));
                     }
                 },
                 None => {
                     current_tx = Some(datom.tx);
-                    if skip_first_tx {
+                    if at_tx <= 3 && skip_first_tx {
                         d(&format!("skipping first"));
                         continue;
                     }
+                    d(&format!("None: calling receiver.tx"));
                     receiver.tx(
                         datom.tx,
                         &mut DatomsIterator::new(&datom, &mut rows)
@@ -193,7 +198,9 @@ impl Processor {
                 }
             }
         }
+        d(&format!("calling receiver.done"));
         receiver.done()?;
         Ok(())
     }
 }
+

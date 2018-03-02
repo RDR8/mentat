@@ -88,11 +88,13 @@ impl TxReceiver for InquiringTxReceiver {
     fn tx<T>(&mut self, tx_id: Entid, _datoms: &mut T) -> Result<()>
     where T: Iterator<Item=TxPart> {
         self.last_tx = Some(tx_id);
+        d(&format!("got new last_tx: {:?}", self.last_tx));
         Ok(())
     }
 
     fn done(&mut self) -> Result<()> {
         self.is_done = true;
+        d(&format!("done!"));
         Ok(())
     }
 }
@@ -262,11 +264,20 @@ impl Syncer {
         let mut inquiring_tx_receiver = InquiringTxReceiver::new();
         // TODO don't just start from the beginning... but then again, we should do this
         // without walking the table at all, and use the tx index.
-        Processor::process(db_tx, None, &mut inquiring_tx_receiver)?;
+        let inq_res = Processor::process(db_tx, None, &mut inquiring_tx_receiver);
+        match inq_res {
+            Ok(_) => d(&format!("inquiry ok")),
+            Err(e) => {
+                d(&format!("inquiry err: {:?}", e));
+                return Err(e);
+            }
+        }
+        d(&format!("After Processor::process inquiring_tx_receiver"));
         if !inquiring_tx_receiver.is_done {
             d(&format!("!inquiring_tx_receiver.is_done"));
             bail!(ErrorKind::TxProcessorUnfinished);
         }
+        d(&format!("TxMapper::get... local head"));
         let (have_local_changes, local_store_empty) = match inquiring_tx_receiver.last_tx {
             Some(tx) => {
                 match TxMapper::get(db_tx, tx)? {
