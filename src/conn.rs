@@ -347,12 +347,15 @@ pub const ANDROID_LOG_DEBUG: i32 = 3;
 extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
 
 pub fn d(message: &str) {
-    println!("d: {}", message);
-    let message = CString::new(message).unwrap();
-    let message = message.as_ptr();
-    let tag = CString::new("RustyToodle").unwrap();
-    let tag = tag.as_ptr();
-    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+    let tag = "mentat::Conn";
+    println!("d: {}: {}", tag, message);
+    if cfg!(target_os = "android") {
+        let message = CString::new(message).unwrap();
+        let message = message.as_ptr();
+        let tag = CString::new(tag).unwrap();
+        let tag = tag.as_ptr();
+        unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+    }
 }
 
 impl<'a, 'c> InProgress<'a, 'c> {
@@ -422,9 +425,9 @@ impl<'a, 'c> InProgress<'a, 'c> {
         }
 
         // Commit the SQLite transaction while we hold the mutex.
-        // OK, we can't use transaction as a key as we don't know something is committed until after it succeeds,
-        // in which case we no longer have the transaction
         self.transaction.commit()?;
+
+        // notify any observers about a transaction that has been made.
         if let Some(observer_service) = self.observer_service {
             d(&format!("got an observer!"));
             observer_service.lock().unwrap().transaction_did_commit(&self.tx_reports);

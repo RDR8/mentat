@@ -56,12 +56,15 @@ pub const ANDROID_LOG_DEBUG: i32 = 3;
 extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
 
 pub fn d(message: &str) {
-    println!("d: {}", message);
-    let message = CString::new(message).unwrap();
-    let message = message.as_ptr();
-    let tag = CString::new("RustyToodle").unwrap();
-    let tag = tag.as_ptr();
-    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+    let tag = "mentat_db::tx_processor";
+    println!("d: {}: {}", tag, message);
+    if cfg!(target_os = "android") {
+        let message = CString::new(message).unwrap();
+        let message = message.as_ptr();
+        let tag = CString::new(tag).unwrap();
+        let tag = tag.as_ptr();
+        unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+    }
 }
 
 impl<'dbtx, 't, T> DatomsIterator<'dbtx, 't, T>

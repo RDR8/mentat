@@ -816,6 +816,7 @@ impl TxObserver {
         }
         if !matching_reports.is_empty() {
             if let Some(ref mut notify_fn) = self.notify_fn {
+                println!("Notifying {:?} about tx {:?}", key, matching_reports);
                 (notify_fn)(key, matching_reports);
             } else {
                 eprintln!("no notify function specified for TxObserver");

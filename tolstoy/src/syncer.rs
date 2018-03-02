@@ -56,12 +56,15 @@ pub const ANDROID_LOG_DEBUG: i32 = 3;
 extern { pub fn __android_log_write(prio: c_int, tag: *const c_char, text: *const c_char) -> c_int; }
 
 pub fn d(message: &str) {
-    println!("d: {}", message);
-    let message = CString::new(message).unwrap();
-    let message = message.as_ptr();
-    let tag = CString::new("RustyToodle").unwrap();
-    let tag = tag.as_ptr();
-    unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+    let tag = "mentat_tolstoy::syncer";
+    println!("d: {}: {}", tag, message);
+    if cfg!(target_os = "android") {
+        let message = CString::new(message).unwrap();
+        let message = message.as_ptr();
+        let tag = CString::new(tag).unwrap();
+        let tag = tag.as_ptr();
+        unsafe { __android_log_write(ANDROID_LOG_DEBUG, tag, message) };
+    }
 }
 
 pub struct Syncer {}
@@ -156,7 +159,7 @@ impl<'c> TxReceiver for UploadingTxReceiver<'c> {
             Some(parent) => {
                 d(&format!("putting transaction: {:?}, {:?}, {:?}", &tx_uuid, &parent, &tx_chunks));
                 self.remote_client.put_transaction(&tx_uuid, &parent, &tx_chunks)?;
-                
+
             },
             None => {
                 d(&format!("putting transaction: {:?}, {:?}, {:?}", &tx_uuid, &self.remote_head, &tx_chunks));
@@ -236,7 +239,7 @@ impl Syncer {
                 parts: tx_parts
             });
         }
-        
+
         d(&format!("got tx list: {:?}", &tx_list));
 
         Ok(tx_list)
@@ -246,7 +249,7 @@ impl Syncer {
         d(&format!("sync flowing"));
 
         ensure_current_version(db_tx)?;
-        
+
         // TODO configure this sync with some auth data
         let remote_client = RemoteClient::new(server_uri.clone(), user_uuid.clone());
 
@@ -298,7 +301,7 @@ impl Syncer {
         // Check if the server is the same as us, and if our HEAD moved.
         } else if locally_known_remote_head == remote_head {
             d(&format!("server unchanged since last sync."));
-            
+
             if !have_local_changes {
                 d(&format!("local HEAD did not move. Nothing to do!"));
                 return Ok(SyncResult::NoChanges);
@@ -399,7 +402,7 @@ impl RemoteClient {
         let uri = uri.parse()?;
 
         d(&format!("parsed uri {:?}", uri));
-        
+
         let work = client.get(uri).and_then(|res| {
             println!("Response: {}", res.status());
 
@@ -463,7 +466,7 @@ impl RemoteClient {
         let uri = uri.parse()?;
 
         d(&format!("parsed uri {:?}", uri));
-        
+
         let work = client.get(uri).and_then(|res| {
             println!("Response: {}", res.status());
 
@@ -496,7 +499,7 @@ impl RemoteClient {
         let uri = uri.parse()?;
 
         d(&format!("parsed uri {:?}", uri));
-        
+
         let work = client.get(uri).and_then(|res| {
             println!("Response: {}", res.status());
 
@@ -529,7 +532,7 @@ impl RemoteClient {
         let uri = uri.parse()?;
 
         d(&format!("parsed uri {:?}", uri));
-        
+
         let work = client.get(uri).and_then(|res| {
             println!("Response: {}", res.status());
 

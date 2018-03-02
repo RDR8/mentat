@@ -49,7 +49,7 @@ pub mod log {
     pub fn d(message: &str) {
         let message = CString::new(message).unwrap();
         let message = message.as_ptr();
-        let tag = CString::new("Mentat").unwrap();
+        let tag = CString::new("mentat_ffi::utils").unwrap();
         let tag = tag.as_ptr();
         unsafe { android::__android_log_write(android::ANDROID_LOG_DEBUG, tag, message) };
     }
