@@ -827,8 +827,8 @@ impl TxObserver {
 
     fn notify(&mut self, key: String, reports: &Vec<TxReport>) {
         let mut matching_reports: Vec<TxReport> = vec![];
-        if let Some(registration_time) = self.registration_time {
-            if registration_time.le(&reports[0].tx_instant) {
+        // if let Some(registration_time) = self.registration_time {
+        //     if registration_time.le(&reports[0].tx_instant) {
                 matching_reports = reports.iter().filter_map( |report| {
                     if self.attributes.intersection(&report.changeset).next().is_some(){
                         Some(report.clone())
@@ -836,8 +836,8 @@ impl TxObserver {
                         None
                     }
                 }).collect();
-            }
-        }
+        //     }
+        // }
         if !matching_reports.is_empty() {
             if let Some(ref mut notify_fn) = self.notify_fn {
                 d(&format!("Notifying {:?} about tx {:?}", key, matching_reports));
