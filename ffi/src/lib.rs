@@ -66,7 +66,7 @@ pub unsafe extern "C" fn store_destroy(store: *mut Store) {
 #[no_mangle]
 pub unsafe extern "C" fn store_register_observer(store: *mut Store,
                                                    key: *const c_char,
-                                                   attributes: *const c_int,
+                                                   attributes: *const i64,
                                                    attributes_len: usize,
                                                    callback: extern fn(key: *const c_char)) {//, reports: &ExternTxReportList)) {
     let store = &mut*store;
